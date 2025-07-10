@@ -443,9 +443,17 @@ public class Server {
                 
                 String message;
                 while ((message = in.readLine()) != null) {
+
+                    // If message is /back, leave DMs
                     if (message.equalsIgnoreCase("/back")) {
                         privateTarget = null;
                         break;
+                    }
+
+                    // Check for empty input
+                    if (message.trim().isEmpty()) {
+                        out.println("(Empty message not sent)");
+                        continue;
                     }
 
                     // Store message in history
@@ -457,7 +465,7 @@ public class Server {
                         targetHandler.privateTarget.equals(username)) {
                         // Target is in chat with us - show immediately
                         targetHandler.out.println(formattedMsg);
-                    }
+                    } 
                 }
                 break;
             }  
