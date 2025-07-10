@@ -17,11 +17,19 @@ public class Server {
     private final static Map<String, List<String>> privateChats = new ConcurrentHashMap<>();
 
     public static void main(String[] args) {
+        // Define the port number the server will listens on 
         int port = 12345;
+
         try (ServerSocket serverSocket = new ServerSocket(port)) {
             System.out.println("Server started on port " + port + "...");
+
+            // The server will run continuously
             while (true) {
+
+                // Wait for and accept incoming client connections
                 Socket socket = serverSocket.accept();
+
+                // When a client connects, it creates a new thread to handle the client 
                 new Thread(new ClientHandler(socket)).start();
             }
         } catch (IOException e) {
@@ -30,25 +38,28 @@ public class Server {
     }
 
     /**
-     * Class representing a chat room with name, password, and members
+     * Represent a chat room with name, password, and members
      */
     static class ChatRoom {
         String roomName;
         String password;
         Set<ClientHandler> members = new HashSet<>();
 
+        // Constructs a new chat room 
         ChatRoom(String name, String pass) {
             this.roomName = name;
             this.password = pass;
         }
 
-        // Broadcase message to all members in the room except the sender
+        // Broadcast message to all members in the room except the sender
         void broadcast(String message, ClientHandler sender) {
             members.forEach(member -> {
                 if (member != sender) {
                     if (message.equals("joined the room") || message.equals("left the room")) {
+                        // System notification format
                         member.out.println("[Server]: "+ sender.username + " " + message);
                     } else {
+                        // Regular chat message format
                         member.out.println("[" + sender.username + "]: " + message);
                     }
                 }
@@ -60,16 +71,19 @@ public class Server {
      * Class that handles individual client connections and manage their interactions 
      */
     static class ClientHandler implements Runnable {
-        private final Socket socket;
-        private BufferedReader in;
-        private PrintWriter out;
-        private String username;
-        private ChatRoom currentRoom = null;
-        private final Set<String> friends = new HashSet<>();
-        private String privateTarget = null;
+        // Network communication
+        private final Socket socket;            // Client connection socket
+        private BufferedReader in;              // Input stream from client, client --> server
+        private PrintWriter out;                // Output stream to client, server --> client
+
+        // User information
+        private String username;                // Unique user identifier
+        private ChatRoom currentRoom = null;    // Currently joined chatroom
+        private final Set<String> friends = new HashSet<>();    // User's friend list
+        private String privateTarget = null;    // Current private chat recipient
 
         public ClientHandler(Socket socket) {
-            this.socket = socket;
+            this.socket = socket;   // Stores the client connection socket
         }
 
         @Override
@@ -80,9 +94,9 @@ public class Server {
                 
                 // Main interaction loop
                 while (true) {
-                    showMainMenu();
+                    showMainMenu(); // Display options
                     String choice = in.readLine().trim();
-                    if (choice == null) break;
+                    if (choice == null) break;  // Client disconnected
 
                     // Handles empty input
                     if (choice.isEmpty()) {
@@ -93,8 +107,8 @@ public class Server {
                     switch (choice) {
                         case "1": handleJoinRoom(); break;
                         case "2": handleCreateRoom(); break;
-                        case "3": handleFriendMenu(); break;
-                        case "/exit": return;
+                        case "3": handleFriendMenu(); break; 
+                        case "/exit": return;                   
                         default: out.println("Invalid option. Please choose 1, 2 or 3.");
                     }
                 }
@@ -116,6 +130,8 @@ public class Server {
             while (true) {
                 out.println("Enter username (or /exit to quit):");
                 username = in.readLine().trim();
+
+                // Exit condition
                 if (username == null || username.equalsIgnoreCase("/exit")) return false;
 
                 // Handle empty input
@@ -131,7 +147,7 @@ public class Server {
                         continue;
                     }
 
-                    // For existing user, ask for password
+                    // For existing user, verify password
                     if (userPasswords.containsKey(username)) {
                         out.println("Enter password:");
                         String password = in.readLine();
@@ -142,7 +158,7 @@ public class Server {
                         }
                         
                         if (userPasswords.get(username).equals(hashPassword(password))) {
-                            break;
+                            break;  // Successful login
                         }
                         out.println("Incorrect password.");
 
@@ -160,6 +176,8 @@ public class Server {
                     }
                 }
             }
+
+            // Registration complete
             clients.put(username, this); // Register client
             out.println("Login successful! Welcome " + username);
             return true;
@@ -182,9 +200,9 @@ public class Server {
                 out.println("No rooms available. Please create one first.");
                 return false;
             }
-            out.println("\nAvailable Rooms:");
+            out.println("\nAvailable Rooms:\n");
             rooms.forEach((name, room) -> 
-                out.println("\n" + "- " + name + " (" + room.members.size() + " members)"));
+                out.println("- " + name + " (" + room.members.size() + " members)"));
             out.flush();
             return true;
         }
@@ -199,30 +217,37 @@ public class Server {
                 out.println("\nEnter room name (or /back to cancel):");
                 String roomName = in.readLine().trim();
 
+                // If input is /back, go back to main menu
                 if (roomName.equalsIgnoreCase("/back")) return;
 
+                // Handles empty input
                 if (roomName.isEmpty()) {
                     out.println("Room name cannot be empty. Please try again.");
                     continue;
                 }
 
+                // Handles non-existing room 
                 ChatRoom room = rooms.get(roomName);
                 if (room == null) {
                     out.println("Room doesn't exist! Please try again.");
                     continue;
                 }
 
+                // Password verification
                 while (true) { 
                     out.println("Enter password (or /back to cancel):");
                     String password = in.readLine().trim();
 
+                    // Password can be empty, as it simulate a public chat room
                     if (password == null) return;
 
+                    // If input is /back, go back to main menu
                     if (password.equalsIgnoreCase("/back")) {
                         out.println("Canceled joining room...");
                         return;
                     }
 
+                    // Verify room password
                     if (!room.password.equals(password)) {
                         out.println("Wrong password! Try again.");
                     } else {
@@ -239,20 +264,25 @@ public class Server {
         private void enterRoom(ChatRoom room) throws IOException {
             currentRoom = room;
             room.members.add(this);
-            room.broadcast("joined the room", this);
+            room.broadcast("joined the room", this);  // Notify others member in the room
             out.println("\nYou're in '" + room.roomName + "'. Type /back to leave.");
 
+            // Room message loop
             String message;
             while ((message = in.readLine()) != null) {
+
+                // If user message is /back, leave chat room  
                 if (message.equalsIgnoreCase("/back")) {
                     leaveCurrentRoom();
                     break;
                 }
+
+                // Handles empty messages
                 if (message.trim().isEmpty()) {
                     out.println("(Empty message not sent)");
                     continue;
                 }
-                currentRoom.broadcast(message, this);
+                currentRoom.broadcast(message, this);   // Send to all room members
             }
         }
 
@@ -309,13 +339,17 @@ public class Server {
                 out.flush();
                 
                 String input = in.readLine().trim();
+
+                // Check for client disconnect
                 if (input == null) break;
 
+                // Check for empty input
                 if (input.isEmpty()) {
                     out.println("Input cannot be empty. Please enter a Friend Menu option.");
                     continue;
                 }
 
+                // Process user choice
                 switch (input) {
                     case "1": showFriends(); break;
                     case "2": addFriend(); break;
@@ -337,17 +371,19 @@ public class Server {
                 out.println("\nEnter your friend's username (or /back to cancel):");
                 String friend = in.readLine().trim();
 
+                // If input is /back, return back to friend menu
                 if (friend.equalsIgnoreCase("/back")) {
                     out.println("Canceling Adding Friends...");
                     return;
                 }
                 
+                // Check for empty input
                 if (friend.isEmpty()) {
                     out.println("Username cannot be empty. Please try again.");
                     continue;
                 }
-
-                 if (clients.containsKey(friend)) {
+                
+                if (clients.containsKey(friend)) {
                 friends.add(friend);
                 out.println(friend + " added!");
                 return;
