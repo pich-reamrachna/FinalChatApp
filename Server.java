@@ -375,7 +375,16 @@ public class Server {
 
         // Show list of friends
         private void showFriends() {
-            out.println("Your friends: " + friends);
+            if (friends.isEmpty()) {
+                out.println("You have no friends yet.");
+                return;
+            }
+            out.println("\n=== Your Friends ===");
+            
+            for (String friend : friends) {
+                boolean isOnline = clients.containsKey(friend);
+                out.println("- " + friend + " [" + (isOnline ? "Online" : "Offline") + "]");
+            }
         }
 
         // Add another online user to the friend list
