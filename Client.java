@@ -4,7 +4,6 @@ import java.util.Scanner;
 
 public class Client {
     public static void main(String[] args) {
-        // String host = "3.107.76.29";
         String host = "localhost";
         int port = 12345;
 
@@ -16,7 +15,6 @@ public class Client {
         try {
             // Connect to server
             socket = new Socket(host, port);
-            System.out.println("Connected to chat server.\n");
             scanner = new Scanner(System.in);
 
             // Setup input/output streams
@@ -24,18 +22,22 @@ public class Client {
             BufferedReader in = new BufferedReader(new InputStreamReader(is));
             out = new PrintWriter(socket.getOutputStream(), true);
 
-            // === LOGIN FLOW ===
+            // === ADDED: Check first server response for "Maximum users" ===
+            String firstResponse = in.readLine();
+            if (firstResponse == null || firstResponse.contains("Maximum users")) {
+                System.out.println(firstResponse != null ? firstResponse : "Server rejected connection");
+                System.out.println("Disconnecting...");
+                return;
+            }
+
+            System.out.println("Connected to chat server.\n");
+
+            // === LOGIN FLOW (rest remains exactly the same) ===
+            System.out.print(firstResponse + " ");
+            String input = scanner.nextLine();
+            out.println(input);
+
             while (true) {
-                String prompt = in.readLine();
-                if (prompt == null) {
-                    System.out.println("Server closed connection.");
-                    return;
-                }
-
-                System.out.print(prompt + " ");
-                String input = scanner.nextLine();
-                out.println(input);
-
                 String response = in.readLine();
                 if (response == null) {
                     System.out.println("Server closed connection.");
@@ -43,32 +45,15 @@ public class Client {
                 }
 
                 System.out.println(response);
+                if (response.toLowerCase().contains("login successful")) break;
 
-                if (response.toLowerCase().contains("login successful")) {
-                    break; // logged in
-                }
-
-                // Check if another input is expected (like password or re-enter)
                 if (response.endsWith(":") || response.endsWith(": ")) {
                     String input2 = scanner.nextLine().trim();
                     out.println(input2);
-
-                    String feedback = in.readLine();
-                    if (feedback == null) {
-                        System.out.println("Server closed connection.");
-                        return;
-                    }
-
-                    System.out.println(feedback);
-
-                    if (feedback.toLowerCase().contains("login successful")) {
-                        break;
-                    }
                 }
-
             }
 
-            // Reader thread: listens for messages from server
+            // Reader thread (removed Maximum users check from here)
             BufferedReader finalIn = in;
             readerThread = new Thread(() -> {
                 try {
@@ -87,35 +72,29 @@ public class Client {
             });
             readerThread.start();
 
-            // Console input loop
+            // Console input loop (unchanged)
             String msg;
-            while (true) {
-                if (scanner.hasNextLine()) {
-                    msg = scanner.nextLine();
-
-                    if ("/exit".equalsIgnoreCase(msg)) {
-                        System.out.println("Closing connection...");
-                        break;
-                    }
-
-                    if (out != null) {
-                        out.println(msg);
-                    }
-                }
+            while (scanner.hasNextLine()) {
+                msg = scanner.nextLine();
+                if ("/exit".equalsIgnoreCase(msg)) break;
+                out.println(msg);
             }
 
+        } catch (ConnectException e) {
+            System.out.println("Could not connect to server. It may be full or offline.");
+        } catch (SocketException e) {
+            System.out.println("Connection closed by server.");
         } catch (IOException e) {
             e.printStackTrace();
         } finally {
             try {
                 if (scanner != null) scanner.close();
                 if (out != null) out.close();
-                if (socket != null && !socket.isClosed()) socket.close();
-                if (readerThread != null) readerThread.join(); // Wait for thread to finish
-            } catch (IOException | InterruptedException e) {
-                e.printStackTrace();
+                if (socket != null) socket.close();
+                if (readerThread != null) readerThread.join();
+            } catch (Exception e) {
+                System.out.println("Cleanup error: " + e.getMessage());
             }
-
             System.out.println("Client shut down.");
         }
     }

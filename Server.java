@@ -18,7 +18,7 @@ public class Server {
 
     private static final int MAX_USERS_PER_ROOM = 3;
     private static final int MAX_ROOMS = 3;
-    private static final int MAX_USERS = 5;
+    private static final int MAX_USERS = 3;
 
     // Tracking arrays
     private static final boolean[][] userRoomJoinHistory = new boolean[MAX_USERS][MAX_ROOMS];
@@ -41,26 +41,28 @@ public class Server {
                 Socket socket = serverSocket.accept();
 
                 synchronized (Server.class) {
-                    // Check MAX_USERS limit
                     if (currentUsers >= MAX_USERS) {
-                        try {
-                            PrintWriter tempOut = new PrintWriter(socket.getOutputStream(), true);
-                            tempOut.println("[Server] Maximum users (" + MAX_USERS + ") reached. Try again later.");
-
-                            socket.close();
-                            
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
+                        rejectConnection(socket);
                         continue;
                     }
                     currentUsers++;
                 }
+                System.out.println("New connection accepted (" + currentUsers + "/" + MAX_USERS + " users)");
                 // When a client connects, it creates a new thread to handle the client 
                 new Thread(new ClientHandler(socket)).start(); 
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            System.err.println("Server error: " + e.getMessage());
+        }
+    }
+
+    private static void rejectConnection(Socket socket) {
+        try (PrintWriter tempOut = new PrintWriter(socket.getOutputStream(), true)) {
+            tempOut.println("[Server] Maximum users (" + MAX_USERS + ") reached. Try again later.");
+            socket.close();
+            System.out.println("Rejected connection (server full)");
+        } catch (IOException e) {
+            System.out.println("Error during rejection: " + e.getMessage());
         }
     }
 
@@ -610,19 +612,24 @@ public class Server {
 
         // Cleanup resources on client disconnect
         private void cleanup() {
+            leaveCurrentRoom();
+
+            synchronized (Server.class) {
+                Server.currentUsers--;
+                System.out.println("User '" + (username != null ? username : "unknown") + 
+                "' disconnected (" + Server.currentUsers + "/" + MAX_USERS + " users)");
+            }
+
             try {
-                leaveCurrentRoom();
-
-                if (username != null) {
-                    clients.remove(username);
-                }
-
                 if (in != null) in.close();
                 if (out != null) out.close();
-                if (socket != null) socket.close();
-                
+                if (socket != null) socket.close(); 
             } catch (IOException e) {
                 e.printStackTrace();
+            }
+
+            if (username != null) {
+                clients.remove(username);
             }
         }
     }
