@@ -23,7 +23,6 @@ public class Server {
 
     // Tracking arrays
     private static final boolean[][] userRoomJoinHistory = new boolean[MAX_USERS][MAX_ROOMS];
-    private static final int[] usersInRoom = new int [MAX_ROOMS]; // Track current users per room
     private static int currentUsers = 0;
 
     public static void main(String[] args) {
@@ -423,10 +422,20 @@ public class Server {
 
                     // Find available room index
                     int roomIndex = -1;
-                    for (int i = 0; i < MAX_ROOMS; i++) {
-                        if (usersInRoom[i] == 0) {  // Unused room slot
-                            roomIndex = i;
-                            break;
+                    synchronized (userRoomJoinHistory) {
+                        for (int i = 0; i < MAX_ROOMS; i++) {
+                            boolean roomHasUsers = false;
+                            // Check if any user is in this room (column i)
+                            for (int j = 0; j < MAX_USERS; j++) {
+                                if (userRoomJoinHistory[j][i]) {
+                                    roomHasUsers = true;
+                                    break;
+                                }
+                            }
+                            if (!roomHasUsers) {  // Found empty room slot
+                                roomIndex = i;
+                                break;
+                            }
                         }
                     }
 
@@ -445,7 +454,6 @@ public class Server {
 
                     ChatRoom newRoom = new ChatRoom(roomName, password, roomIndex);
                     rooms.put(roomName, newRoom);
-                    usersInRoom[roomIndex] = 0;
                     enterRoom(newRoom);
                     break;
                 }
