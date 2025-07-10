@@ -11,19 +11,20 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class Server {
     // Maps to track connected users, user passwords, chat rooms, and private message history. 
-    private final static Map<String, ClientHandler> clients = new ConcurrentHashMap<>();
-    private final static Map<String, String> userPasswords = new ConcurrentHashMap<>();
-    private final static Map<String, ChatRoom> rooms = new ConcurrentHashMap<>();
-    private final static Map<String, List<String>> privateChats = new ConcurrentHashMap<>();
+    private final static Map<String, ClientHandler> clients = new ConcurrentHashMap<>();    // Active Users
+    private final static Map<String, String> userPasswords = new ConcurrentHashMap<>();     // User credentials
+    private final static Map<String, ChatRoom> rooms = new ConcurrentHashMap<>();           // Available chat rooms
+    private final static Map<String, List<String>> privateChats = new ConcurrentHashMap<>();// Private message history
 
-    private static final int MAX_USERS = 10;
-    private static final int MAX_ROOMS = 10;
-    private static final int MAX_USERS_PER_ROOM = 10;
+    private static final int MAX_USERS = 3;            // Maximum concurrent users
+    private static final int MAX_ROOMS = 2;            // Maximum rooms allowed
+    private static final int MAX_USERS_PER_ROOM = 2;   // Maximum users per room 
    
 
-    // Tracking arrays
+    // Tracking 2D array for user-room assignment
+    // Rows = users, Columns = rooms
     private static final boolean[][] userRoomJoinHistory = new boolean[MAX_USERS][MAX_ROOMS];
-    private static int currentUsers = 0;
+    private static int currentUsers = 0; 
 
     public static void main(String[] args) {
         // Define the port number the server will listens on 
@@ -54,6 +55,7 @@ public class Server {
         }
     }
 
+    // When server is full, reject 
     private static void rejectConnection(Socket socket) {
         try (PrintWriter tempOut = new PrintWriter(socket.getOutputStream(), true)) {
             tempOut.println("[Server] Maximum users (" + MAX_USERS + ") reached. Try again later.");
@@ -97,7 +99,7 @@ public class Server {
     }
 
     /**
-     * Class that handles individual client connections and manage their interactions 
+     * Handles individual client connections and manage their interactions 
      */
     static class ClientHandler implements Runnable {
         // Network communication
@@ -145,18 +147,11 @@ public class Server {
                     if (choice.equals("/exit")) {
                         out.println("[Server] Goodbye!");
                         out.flush();
-
-                        // 2. Small delay to ensure message is sent
-                        try { Thread.sleep(100); } catch (InterruptedException e) {}
                         
-                        // 3. Close the socket
                         socket.close();
                         
-                        // 4. Print disconnect message
                         System.out.println("User '" + username + "' disconnected via /exit");
-                        
-                        // 5. Return to trigger clea
-                        return; // Exit normally without triggering exception
+                        return;
                     }
 
                     // Handles user's choice
@@ -196,7 +191,6 @@ public class Server {
                     return false;
                 }
                 
-
                 username = input.trim();
                 // Handle empty input
                 if (username.isEmpty()) {
@@ -222,7 +216,7 @@ public class Server {
                         }
                         
                         if (userPasswords.get(username).equals(hashPassword(password))) {
-                            break;  // Successful login
+                            break; // Successful login
                         }
                         out.println("Incorrect password.");
 
@@ -342,19 +336,12 @@ public class Server {
                     return;
                 }
 
-                // 2. Reserve a slot for this user
-                boolean slotFound = false;
+                // Reserve a slot for this user
                 for (int i = 0; i < MAX_USERS; i++) {
                     if (!userRoomJoinHistory[i][room.roomIndex]) {
                         userRoomJoinHistory[i][room.roomIndex] = true;
-                        slotFound = true;
                         break;
                     }
-                }
-                
-                if (!slotFound) { 
-                    out.println("[Server] Error: No available slots");
-                    return;
                 }
             }
 
@@ -508,6 +495,7 @@ public class Server {
             }
             out.println("\n=== Your Friends ===");
             
+            // Active status 
             for (String friend : friends) {
                 boolean isOnline = clients.containsKey(friend);
                 out.println("- " + friend + " [" + (isOnline ? "Online" : "Offline") + "]");
@@ -632,14 +620,14 @@ public class Server {
                     clients.remove(username);
                 }
                 Server.currentUsers--;
-                // This will now show for all disconnections
                 System.out.println("\nNow has (" + Server.currentUsers + "/" + MAX_USERS + " users)");
             }
 
+            // Close all I/O resource abd the socket connection
             try {
-                if (in != null) in.close();
-                if (out != null) out.close();
-                if (socket != null) socket.close();
+                if (in != null) in.close();            // Close input stream
+                if (out != null) out.close();          // Close output stream
+                if (socket != null) socket.close();    // Close socket
             } catch (IOException e) {
                 System.out.println("Cleanup error: " + e.getMessage());
             }
