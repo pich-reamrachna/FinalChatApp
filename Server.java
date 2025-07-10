@@ -89,20 +89,33 @@ public class Server {
         @Override
         public void run() {
             try {
+                // When new client connects
+                System.out.println("\nNew client connected from: " + socket.getInetAddress().getHostAddress());
+
                 setupStreams();
-                if (!authenticateUser()) return; // Login or register user
-                
+                if (!authenticateUser()) {
+                    System.out.println("\nClient disconnected during authentication.");
+                    return; // Login or register user
+                }
+
+                System.out.println("\nUser '"+ username + "' has joined the server.");
+
                 // Main interaction loop
                 while (true) {
                     showMainMenu(); // Display options
-                    String choice = in.readLine().trim();
-                    if (choice == null) break;  // Client disconnected
+                    String choice = in.readLine();
+                    if (choice == null) {
+                        System.out.println("\nUser '"+ username + "' has exited the server.");
+                        break;  // Client disconnected
+                    }
 
                     // Handles empty input
+                    choice = choice.trim();
                     if (choice.isEmpty()) {
                         out.println("Input cannot be empty. Please enter a menu option.");
                         continue;
                     }
+
                     // Handles user's choice
                     switch (choice) {
                         case "1": handleJoinRoom(); break;
