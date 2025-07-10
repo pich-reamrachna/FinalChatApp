@@ -396,13 +396,17 @@ public class Server {
                     continue;
                 }
                 
-                if (clients.containsKey(friend)) {
-                friends.add(friend);
-                out.println(friend + " added!");
-                return;
-            
+                // Check if friend exist even if not online
+                if (!userPasswords.containsKey(friend)) {
+                    out.println("User does not exist. Please try again.");
+                } else if (friend.equals(username)) {
+                    out.println("You can't add yourself!");
+                } else if (friends.contains(friend)) {
+                    out.println(friend + " is already in your friend list.");
                 } else {
-                out.println("User not found. Please try again.");
+                    friends.add(friend);
+                    out.println(friend + " has been added to your friend list.");
+                    return;
                 }
             }
         }
