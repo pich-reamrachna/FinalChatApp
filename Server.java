@@ -327,37 +327,42 @@ public class Server {
 
         // Enter a room and handle user messages
         private void enterRoom(ChatRoom room) throws IOException {
-            // Check if room is full 
-            synchronized (room.members) {
-                // Check if room is full
-                if (usersInRoom[room.roomIndex] >= MAX_USERS_PER_ROOM) {
+            // Check room capacity
+            synchronized (userRoomJoinHistory) {
+                int usersInThisRoom = 0;
+                // Count how many users are in this room (column scan)
+                for (int i = 0; i < MAX_USERS; i++) {
+                    if (userRoomJoinHistory[i][room.roomIndex]) {
+                        usersInThisRoom++;
+                    }
+                }
+                
+                // Enforce per-room limit
+                if (usersInThisRoom >= MAX_USERS_PER_ROOM) {
                     out.println("[Server] Room is full (max " + MAX_USERS_PER_ROOM + " users)");
                     return;
                 }
 
-                // Asign user index
-                int userIndex = -1;
-                synchronized (userRoomJoinHistory) {
-                    for (int i = 0; i < MAX_USERS; i++) {
-                        if (!userRoomJoinHistory[i][room.roomIndex]) {   // Check if slot is available
-                            userIndex = i;
-                            userRoomJoinHistory[i][room.roomIndex] = true;
-                            break;
-                        }
+                // 2. Reserve a slot for this user
+                boolean slotFound = false;
+                for (int i = 0; i < MAX_USERS; i++) {
+                    if (!userRoomJoinHistory[i][room.roomIndex]) {
+                        userRoomJoinHistory[i][room.roomIndex] = true;
+                        slotFound = true;
+                        break;
                     }
                 }
-
-                if (userIndex == -1) {
-                    out.println("[Server] User tracking limit reached for this room");
+                
+                if (!slotFound) { 
+                    out.println("[Server] Error: No available slots");
                     return;
                 }
-
-                usersInRoom[room.roomIndex]++;
-                currentRoom = room;
-                room.members.add(this);
-                room.broadcast("joined the room", this);
             }
 
+            // Proceed with joining
+            currentRoom = room;
+            room.members.add(this); 
+            room.broadcast("joined the room", this);
             out.println("\nYou're in '" + room.roomName + "'. Type /back to leave.");
 
             // Room message loop
@@ -443,7 +448,6 @@ public class Server {
                     usersInRoom[roomIndex] = 0;
                     enterRoom(newRoom);
                     break;
-
                 }
                 
             }
@@ -452,21 +456,20 @@ public class Server {
         // Leave the current room and notify others
         private void leaveCurrentRoom() {
             if (currentRoom != null) {
-                synchronized (currentRoom.members) {
-                    // Find and clear user's slot in the 2D array
+                synchronized (userRoomJoinHistory) {
+                    // Free this user's slot in the room
                     for (int i = 0; i < MAX_USERS; i++) {
                         if (userRoomJoinHistory[i][currentRoom.roomIndex]) {
                             userRoomJoinHistory[i][currentRoom.roomIndex] = false;
-                            usersInRoom[currentRoom.roomIndex]--;
                             break;
                         }
                     }
-                    
+                }
+        
                     currentRoom.members.remove(this);
                     currentRoom.broadcast("left the room", this);
                     currentRoom = null;
-                }
-                out.println("[Server] You left the room");
+                    out.println("[Server] You left the room");
             }
         }
 
