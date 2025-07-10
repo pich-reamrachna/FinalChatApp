@@ -16,6 +16,17 @@ public class Server {
     private final static Map<String, ChatRoom> rooms = new ConcurrentHashMap<>();
     private final static Map<String, List<String>> privateChats = new ConcurrentHashMap<>();
 
+    private static final int MAX_USERS_PER_ROOM = 3;
+    private static final int MAX_ROOMS = 3;
+    private static final int MAX_USERS = 5;
+
+    // Tracking arrays
+    private static final boolean[][] userRoomJoinHistory = new boolean[MAX_USERS][MAX_ROOMS];
+    private static final int[] usersInRoom = new int [MAX_ROOMS]; // Track current users per room
+   
+    private static int currentUsers = 0;
+
+
     public static void main(String[] args) {
         // Define the port number the server will listens on 
         int port = 12345;
@@ -29,8 +40,24 @@ public class Server {
                 // Wait for and accept incoming client connections
                 Socket socket = serverSocket.accept();
 
+                synchronized (Server.class) {
+                    // Check MAX_USERS limit
+                    if (currentUsers >= MAX_USERS) {
+                        try {
+                            PrintWriter tempOut = new PrintWriter(socket.getOutputStream(), true);
+                            tempOut.println("[Server] Maximum users (" + MAX_USERS + ") reached. Try again later.");
+
+                            socket.close();
+                            
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                        continue;
+                    }
+                    currentUsers++;
+                }
                 // When a client connects, it creates a new thread to handle the client 
-                new Thread(new ClientHandler(socket)).start();
+                new Thread(new ClientHandler(socket)).start(); 
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -44,11 +71,13 @@ public class Server {
         String roomName;
         String password;
         Set<ClientHandler> members = new HashSet<>();
+        final int roomIndex;
 
         // Constructs a new chat room 
-        ChatRoom(String name, String pass) {
+        ChatRoom(String name, String pass, int index) {
             this.roomName = name;
             this.password = pass;
+            this.roomIndex = index;
         }
 
         // Broadcast message to all members in the room except the sender
@@ -99,6 +128,21 @@ public class Server {
                 }
 
                 System.out.println("\nUser '"+ username + "' has joined the server.");
+
+                // Asign user index
+                int userIndex = -1;
+                synchronized (userRoomJoinHistory) {
+                    for (int i = 0; i < MAX_USERS; i++) {
+                        if (!userRoomJoinHistory[i][0]) {   // Check if slot is available
+                            userIndex = i;
+                            break;
+                        }
+                    }
+                    if (userIndex == -1) {
+                        out.println("[Server]: User tracking limit reached.");
+                        return;
+                    }
+                }
 
                 // Main interaction loop
                 while (true) {
@@ -275,9 +319,38 @@ public class Server {
 
         // Enter a room and handle user messages
         private void enterRoom(ChatRoom room) throws IOException {
-            currentRoom = room;
-            room.members.add(this);
-            room.broadcast("joined the room", this);  // Notify others member in the room
+            // Check if room is full 
+            synchronized (room.members) {
+                // Check if room is full
+                if (usersInRoom[room.roomIndex] >= MAX_USERS_PER_ROOM) {
+                    out.println("[Server] Room is full (max " + MAX_USERS_PER_ROOM + " users)");
+                    return;
+                }
+
+                // Find available user index
+                int userIndex = -1;
+                for (int i = 0; i < MAX_USERS; i++) {
+                    if (!userRoomJoinHistory[i][room.roomIndex]) {
+                        userIndex = i;
+                        break;
+                    }
+                }
+
+                if (userIndex == -1) {
+                    out.println("[Server] User tracking limit reached for this room");
+                    return;
+                }
+
+                // Mark user as joined
+                userRoomJoinHistory[userIndex][room.roomIndex] = true;
+                usersInRoom[room.roomIndex]++;
+                
+                currentRoom = room;
+                room.members.add(this);
+                room.broadcast("joined the room", this);
+ 
+            }
+
             out.println("\nYou're in '" + room.roomName + "'. Type /back to leave.");
 
             // Room message loop
@@ -295,12 +368,20 @@ public class Server {
                     out.println("(Empty message not sent)");
                     continue;
                 }
-                currentRoom.broadcast(message, this);   // Send to all room members
+                currentRoom.broadcast(message, this);
             }
         }
 
         // Create a new chat room
         private void handleCreateRoom() throws IOException {
+            // Check MAX_ROOMS limit
+            synchronized (rooms) {
+                if (rooms.size() >= MAX_ROOMS) {
+                    out.println("[Server] Maximum rooms (" + MAX_ROOMS + ") reached. Cannot create more.");
+                    return;
+                }
+            }
+
             while (true) {
                 out.println("Enter new room name (or /back to cancel):");
                 String roomName = in.readLine().trim();
@@ -315,27 +396,57 @@ public class Server {
                 }
 
                 // If room name already exists, prompt user to input again
-                if (rooms.containsKey(roomName)) {
-                    out.println("Room already exists. Choose another name.");
-                    continue;
+                synchronized (rooms) {
+                    if (rooms.containsKey(roomName)) {
+                        out.println("Room already exists. Choose another name.");
+                        continue;
+                    }
+
+                    // Find available room index
+                    int roomIndex = -1;
+                    for (int i = 0; i < MAX_ROOMS; i++) {
+                        if (usersInRoom[i] == 0) {  // Unused room slot
+                            roomIndex = i;
+                            break;
+                        }
+                    }
+
+                    if (roomIndex == -1) {
+                        out.println("[Server] No available room slots");
+                        continue;
+                    }
+
+                    out.println("Set password for '" + roomName + "':");
+                    String password = in.readLine().trim();
+
+                    ChatRoom newRoom = new ChatRoom(roomName, password, roomIndex);
+                    rooms.put(roomName, newRoom);
+                    usersInRoom[roomIndex] = 0;
+                    enterRoom(newRoom);
+                    break;
+
                 }
-
-                out.println("Set password for '" + roomName + "':");
-                String password = in.readLine().trim();
-
-                ChatRoom newRoom = new ChatRoom(roomName, password);
-                rooms.put(roomName, newRoom);
-                enterRoom(newRoom);
-                break;
+                
             }
         }
 
         // Leave the current room and notify others
         private void leaveCurrentRoom() {
             if (currentRoom != null) {
-                currentRoom.members.remove(this);
-                currentRoom.broadcast("left the room", this);
-                currentRoom = null;
+                synchronized (currentRoom.members) {
+                    // Find and clear user's slot in the 2D array
+                    for (int i = 0; i < MAX_USERS; i++) {
+                        if (userRoomJoinHistory[i][currentRoom.roomIndex]) {
+                            userRoomJoinHistory[i][currentRoom.roomIndex] = false;
+                            usersInRoom[currentRoom.roomIndex]--;
+                            break;
+                        }
+                    }
+                    
+                    currentRoom.members.remove(this);
+                    currentRoom.broadcast("left the room", this);
+                    currentRoom = null;
+                }
                 out.println("You left the room");
             }
         }
