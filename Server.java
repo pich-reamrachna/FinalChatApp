@@ -16,9 +16,9 @@ public class Server {
     private final static Map<String, ChatRoom> rooms = new ConcurrentHashMap<>();
     private final static Map<String, List<String>> privateChats = new ConcurrentHashMap<>();
 
-    private static final int MAX_USERS = 3;
-    private static final int MAX_ROOMS = 3;
-    private static final int MAX_USERS_PER_ROOM = 2;
+    private static final int MAX_USERS = 10;
+    private static final int MAX_ROOMS = 10;
+    private static final int MAX_USERS_PER_ROOM = 10;
    
 
     // Tracking arrays
@@ -421,28 +421,7 @@ public class Server {
                     }
 
                     // Find available room index
-                    int roomIndex = -1;
-                    synchronized (userRoomJoinHistory) {
-                        for (int i = 0; i < MAX_ROOMS; i++) {
-                            boolean roomHasUsers = false;
-                            // Check if any user is in this room (column i)
-                            for (int j = 0; j < MAX_USERS; j++) {
-                                if (userRoomJoinHistory[j][i]) {
-                                    roomHasUsers = true;
-                                    break;
-                                }
-                            }
-                            if (!roomHasUsers) {  // Found empty room slot
-                                roomIndex = i;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (roomIndex == -1) {
-                        out.println("[Server] No available room slots");
-                        continue;
-                    }
+                    int roomIndex = rooms.size();
 
                     out.println("Set password for '" + roomName + "':");
                     String password = in.readLine();
@@ -457,7 +436,6 @@ public class Server {
                     enterRoom(newRoom);
                     break;
                 }
-                
             }
         }
 
