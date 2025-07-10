@@ -16,16 +16,15 @@ public class Server {
     private final static Map<String, ChatRoom> rooms = new ConcurrentHashMap<>();
     private final static Map<String, List<String>> privateChats = new ConcurrentHashMap<>();
 
-    private static final int MAX_USERS_PER_ROOM = 3;
-    private static final int MAX_ROOMS = 3;
     private static final int MAX_USERS = 3;
+    private static final int MAX_ROOMS = 3;
+    private static final int MAX_USERS_PER_ROOM = 2;
+   
 
     // Tracking arrays
     private static final boolean[][] userRoomJoinHistory = new boolean[MAX_USERS][MAX_ROOMS];
     private static final int[] usersInRoom = new int [MAX_ROOMS]; // Track current users per room
-   
     private static int currentUsers = 0;
-
 
     public static void main(String[] args) {
         // Define the port number the server will listens on 
@@ -47,7 +46,7 @@ public class Server {
                     }
                     currentUsers++;
                 }
-                System.out.println("New connection accepted (" + currentUsers + "/" + MAX_USERS + " users)");
+                System.out.println("\nNew connection accepted (" + currentUsers + "/" + MAX_USERS + " users)");
                 // When a client connects, it creates a new thread to handle the client 
                 new Thread(new ClientHandler(socket)).start(); 
             }
@@ -88,7 +87,7 @@ public class Server {
                 if (member != sender) {
                     if (message.equals("joined the room") || message.equals("left the room")) {
                         // System notification format
-                        member.out.println("[Server]: "+ sender.username + " " + message);
+                        member.out.println("[Server] "+ sender.username + " " + message);
                     } else {
                         // Regular chat message format
                         member.out.println("[" + sender.username + "]: " + message);
@@ -124,55 +123,53 @@ public class Server {
                 System.out.println("\nNew client connected from: " + socket.getInetAddress().getHostAddress());
 
                 setupStreams();
+                
                 if (!authenticateUser()) {
-                    System.out.println("\nClient disconnected during authentication.");
-                    return; // Login or register user
+                    System.out.println("Connection closed during authentication");
+                    return;
                 }
 
                 System.out.println("\nUser '"+ username + "' has joined the server.");
-
-                // Asign user index
-                int userIndex = -1;
-                synchronized (userRoomJoinHistory) {
-                    for (int i = 0; i < MAX_USERS; i++) {
-                        if (!userRoomJoinHistory[i][0]) {   // Check if slot is available
-                            userIndex = i;
-                            break;
-                        }
-                    }
-                    if (userIndex == -1) {
-                        out.println("[Server]: User tracking limit reached.");
-                        return;
-                    }
-                }
 
                 // Main interaction loop
                 while (true) {
                     showMainMenu(); // Display options
                     String choice = in.readLine();
-                    if (choice == null) {
-                        System.out.println("\nUser '"+ username + "' has exited the server.");
-                        break;  // Client disconnected
-                    }
 
                     // Handles empty input
+                    if (choice == null) {
+                        throw new IOException("Client disconnected");
+                    }
+                    
                     choice = choice.trim();
-                    if (choice.isEmpty()) {
-                        out.println("Input cannot be empty. Please enter a menu option.");
-                        continue;
+
+                    if (choice.equals("/exit")) {
+                        out.println("[Server] Goodbye!");
+                        out.flush();
+
+                        // 2. Small delay to ensure message is sent
+                        try { Thread.sleep(100); } catch (InterruptedException e) {}
+                        
+                        // 3. Close the socket
+                        socket.close();
+                        
+                        // 4. Print disconnect message
+                        System.out.println("User '" + username + "' disconnected via /exit");
+                        
+                        // 5. Return to trigger clea
+                        return; // Exit normally without triggering exception
                     }
 
                     // Handles user's choice
                     switch (choice) {
                         case "1": handleJoinRoom(); break;
                         case "2": handleCreateRoom(); break;
-                        case "3": handleFriendMenu(); break; 
-                        case "/exit": return;                   
+                        case "3": handleFriendMenu(); break;               
                         default: out.println("Invalid option. Please type 1, 2, 3 or /exit to exit.");
                     }
                 }
             } catch (IOException e) {
-                System.out.println("\n" + (username != null ? username : "client") + " disconnected abruptly.");
+                System.out.println("\n" + (username != null ? username : "Client") + " disconnected.");   
             } finally {
                 cleanup(); // Ensure that client is removed and resources closed
             }
@@ -188,11 +185,20 @@ public class Server {
         private boolean authenticateUser() throws IOException {
             while (true) {
                 out.println("Enter username (or /exit to quit):");
-                username = in.readLine().trim();
+                String input = in.readLine();
 
                 // Exit condition
-                if (username == null || username.equalsIgnoreCase("/exit")) return false;
+                if (input == null) return false;
 
+                if (input.trim().equalsIgnoreCase("/exit")) {
+                    System.out.println("User disconnected during authentication");
+                    out.println("[Server] Goodbye! Disconnecting...");
+                    out.flush();
+                    return false;
+                }
+                
+
+                username = input.trim();
                 // Handle empty input
                 if (username.isEmpty()) {
                     out.println("Username cannot be empty. Please try again.");
@@ -329,12 +335,15 @@ public class Server {
                     return;
                 }
 
-                // Find available user index
+                // Asign user index
                 int userIndex = -1;
-                for (int i = 0; i < MAX_USERS; i++) {
-                    if (!userRoomJoinHistory[i][room.roomIndex]) {
-                        userIndex = i;
-                        break;
+                synchronized (userRoomJoinHistory) {
+                    for (int i = 0; i < MAX_USERS; i++) {
+                        if (!userRoomJoinHistory[i][room.roomIndex]) {   // Check if slot is available
+                            userIndex = i;
+                            userRoomJoinHistory[i][room.roomIndex] = true;
+                            break;
+                        }
                     }
                 }
 
@@ -343,14 +352,10 @@ public class Server {
                     return;
                 }
 
-                // Mark user as joined
-                userRoomJoinHistory[userIndex][room.roomIndex] = true;
                 usersInRoom[room.roomIndex]++;
-                
                 currentRoom = room;
                 room.members.add(this);
                 room.broadcast("joined the room", this);
- 
             }
 
             out.println("\nYou're in '" + room.roomName + "'. Type /back to leave.");
@@ -386,7 +391,14 @@ public class Server {
 
             while (true) {
                 out.println("Enter new room name (or /back to cancel):");
-                String roomName = in.readLine().trim();
+                String roomName = in.readLine();
+
+                // Handle client disconnect
+                if (roomName == null) {
+                    throw new IOException("Client disconnected during room creation");
+                }
+
+                roomName = roomName.trim();
                 
                 // If input is /back, go back to main menu
                 if (roomName.equalsIgnoreCase("/back")) return;
@@ -419,7 +431,12 @@ public class Server {
                     }
 
                     out.println("Set password for '" + roomName + "':");
-                    String password = in.readLine().trim();
+                    String password = in.readLine();
+
+                    if (password == null) {
+                        throw new IOException("Client disconnected during password input");
+                    }
+                    password = password.trim();
 
                     ChatRoom newRoom = new ChatRoom(roomName, password, roomIndex);
                     rooms.put(roomName, newRoom);
@@ -449,7 +466,7 @@ public class Server {
                     currentRoom.broadcast("left the room", this);
                     currentRoom = null;
                 }
-                out.println("You left the room");
+                out.println("[Server] You left the room");
             }
         }
 
@@ -464,10 +481,14 @@ public class Server {
                 out.println("Enter: ");
                 out.flush();
                 
-                String input = in.readLine().trim();
+                String input = in.readLine();
 
                 // Check for client disconnect
-                if (input == null) break;
+                if (input == null) {
+                    throw new IOException("Client disconnected during friend menu");
+                }
+
+                input = input.trim();
 
                 // Check for empty input
                 if (input.isEmpty()) {
@@ -481,6 +502,10 @@ public class Server {
                     case "2": addFriend(); break;
                     case "3": startPrivateChat(); break;
                     case "4": return;
+                    case "/exit":
+                        out.println("[Server] Goodbye! Disconnecting ...");
+                        out.flush();
+                        throw new IOException("Normal exit from friend menu");
                     default: out.println("Invalid option. Please enter 1, 2, 3, or 4.");
                 }
             }
@@ -610,26 +635,24 @@ public class Server {
             }  
         }
 
-        // Cleanup resources on client disconnect
         private void cleanup() {
             leaveCurrentRoom();
 
             synchronized (Server.class) {
+                if (username != null) {
+                    clients.remove(username);
+                }
                 Server.currentUsers--;
-                System.out.println("User '" + (username != null ? username : "unknown") + 
-                "' disconnected (" + Server.currentUsers + "/" + MAX_USERS + " users)");
+                // This will now show for all disconnections
+                System.out.println("\nNow has (" + Server.currentUsers + "/" + MAX_USERS + " users)");
             }
 
             try {
                 if (in != null) in.close();
                 if (out != null) out.close();
-                if (socket != null) socket.close(); 
+                if (socket != null) socket.close();
             } catch (IOException e) {
-                e.printStackTrace();
-            }
-
-            if (username != null) {
-                clients.remove(username);
+                System.out.println("Cleanup error: " + e.getMessage());
             }
         }
     }
