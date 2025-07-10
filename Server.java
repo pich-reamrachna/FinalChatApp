@@ -122,11 +122,11 @@ public class Server {
                         case "2": handleCreateRoom(); break;
                         case "3": handleFriendMenu(); break; 
                         case "/exit": return;                   
-                        default: out.println("Invalid option. Please choose 1, 2 or 3.");
+                        default: out.println("Invalid option. Please type 1, 2, 3 or /exit to exit.");
                     }
                 }
             } catch (IOException e) {
-                System.out.println(username + " disconnected abruptly");
+                System.out.println("\n" + (username != null ? username : "client") + " disconnected abruptly.");
             } finally {
                 cleanup(); // Ensure that client is removed and resources closed
             }
@@ -488,10 +488,15 @@ public class Server {
         private void cleanup() {
             try {
                 leaveCurrentRoom();
-                clients.remove(username);
+
+                if (username != null) {
+                    clients.remove(username);
+                }
+
                 if (in != null) in.close();
                 if (out != null) out.close();
                 if (socket != null) socket.close();
+                
             } catch (IOException e) {
                 e.printStackTrace();
             }
